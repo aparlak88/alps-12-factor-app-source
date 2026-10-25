@@ -1,6 +1,5 @@
-using System.Reflection;
 using System.Xml.Linq;
-using Xunit;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Bookstore.ArchitectureTests;
 
@@ -60,6 +59,102 @@ public sealed class Factor01_CodebaseTests
         Assert.True(File.Exists(xmlPath), "XML documentation file for Bookstore.Contracts must be emitted on build.");
         var xmlContent = File.ReadAllText(xmlPath);
         Assert.Contains("12-Factor Principle: Factor I", xmlContent);
+    }
+
+    [Theory]
+    [InlineData("1.0.0+abc1234def", "1.0.0", "abc1234def")]
+    [InlineData("1.0.0", "1.0.0", "unknown-revision")]
+    [InlineData(null, "0.0.0", "unknown-revision")]
+    public void CodebaseInfoProvider_ParsesGitRevisionAndFallbackCleanly(
+        string? rawInformationalVersion,
+        string expectedVersion,
+        string expectedSha)
+    {
+        var (version, sha) = Bookstore.ServiceDefaults.CodebaseInfoProvider.ParseInformationalVersion(rawInformationalVersion);
+        Assert.Equal(expectedVersion, version);
+        Assert.Equal(expectedSha, sha);
+    }
+
+    [Fact]
+    public void CodebaseInfoProvider_DefaultsEnvironmentToProduction_WhenUnset()
+    {
+        var provider = new Bookstore.ServiceDefaults.CodebaseInfoProvider(
+            "Catalog.Api",
+            typeof(Factor01_CodebaseTests).Assembly,
+            environmentName: null);
+
+        var metadata = provider.GetMetadata();
+        Assert.Equal("Catalog.Api", metadata.ServiceName);
+        Assert.Equal("Production", metadata.EnvironmentName);
+        Assert.False(string.IsNullOrWhiteSpace(metadata.GitCommitSha));
+    }
+
+    [Fact]
+    public void ServiceDefaults_GenerateXmlDocumentationWithFactorRemarks()
+    {
+        var xmlPath = Path.Combine(AppContext.BaseDirectory, "Bookstore.ServiceDefaults.xml");
+        Assert.True(File.Exists(xmlPath), "XML documentation file for Bookstore.ServiceDefaults must be emitted on build.");
+        var xmlContent = File.ReadAllText(xmlPath);
+        Assert.Contains("12-Factor Principle: Factor I", xmlContent);
+    }
+
+    [Theory]
+    [InlineData("Catalog.Api.xml")]
+    [InlineData("Ordering.Api.xml")]
+    [InlineData("Fulfillment.Worker.xml")]
+    public void WorkloadEntryPoints_GenerateXmlDocumentationWithFactorRemarks(string xmlFileName)
+    {
+        var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFileName);
+        Assert.True(File.Exists(xmlPath), $"XML documentation file '{xmlFileName}' must be emitted on build.");
+        var xmlContent = File.ReadAllText(xmlPath);
+        Assert.Contains("12-Factor Principle: Factor I — Codebase", xmlContent);
+    }
+
+    [Fact]
+    public void AddCodebaseMetadata_RegistersSingletonProvider_InServiceCollection()
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Bookstore.ServiceDefaults.CodebaseEndpointExtensions.AddCodebaseMetadata(
+            services,
+            "Catalog.Api",
+            typeof(Factor01_CodebaseTests).Assembly);
+
+        var provider = services.BuildServiceProvider().GetRequiredService<Bookstore.ServiceDefaults.ICodebaseInfoProvider>();
+        Assert.NotNull(provider);
+        var metadata = provider.GetMetadata();
+        Assert.Equal("Catalog.Api", metadata.ServiceName);
+        Assert.False(string.IsNullOrWhiteSpace(metadata.GitCommitSha));
+    }
+
+    [Fact]
+    public void CodebaseInfoProvider_ResolvesEnvironmentFromEnvironmentVariables()
+    {
+        var originalAspNetCore = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        var originalDotnet = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Staging");
+            Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", "Development");
+
+            var provider1 = new Bookstore.ServiceDefaults.CodebaseInfoProvider(
+                "Ordering.Api",
+                typeof(Factor01_CodebaseTests).Assembly,
+                environmentName: null);
+            Assert.Equal("Staging", provider1.GetMetadata().EnvironmentName);
+
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", null);
+            var provider2 = new Bookstore.ServiceDefaults.CodebaseInfoProvider(
+                "Fulfillment.Worker",
+                typeof(Factor01_CodebaseTests).Assembly,
+                environmentName: null);
+            Assert.Equal("Development", provider2.GetMetadata().EnvironmentName);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", originalAspNetCore);
+            Environment.SetEnvironmentVariable("DOTNET_ENVIRONMENT", originalDotnet);
+        }
     }
 
     private static string FindRepoRoot()
