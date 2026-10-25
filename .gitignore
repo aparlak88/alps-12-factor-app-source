@@ -1,0 +1,22 @@
+## Build and Output Folders
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+TestResults/
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+## IDE & Editor Files
+.vs/
+.idea/
+*.user
+*.userosscache
+*.suo
+*.userprefs
+*.DotSettings.user
+*.VisualState.xml
+
+## OS Artifacts
+.DS_Store
+Thumbs.db

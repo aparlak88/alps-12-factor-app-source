@@ -1,0 +1,37 @@
+<Project>
+  <!--
+    12-Factor Principle: Factor I — Codebase
+    One codebase tracked in revision control, many deploys.
+
+    A single root Directory.Build.props centrally governs all projects within the TwelveFactor.Bookstore
+    monorepo. This guarantees uniform build standards, compiler strictness, target framework consistency,
+    and Git revision metadata injection across all services (Catalog.Api, Ordering.Api, Fulfillment.Worker)
+    and shared libraries (Bookstore.Contracts, Bookstore.ServiceDefaults).
+
+    By enforcing TargetFramework=net10.0, TreatWarningsAsErrors=true, and GenerateDocumentationFile=true
+    at the root level, we prevent configuration drift across microservices and ensure that domain contracts
+    and APIs maintain comprehensive documentation.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IncludeSourceRevisionInInformationalVersion>true</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <!-- Detect test projects by naming convention at props evaluation time if not explicitly defined -->
+  <PropertyGroup Condition="'$(IsTestProject)' == '' and $(MSBuildProjectName.EndsWith('Tests'))">
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <!--
+    CS1591 disables missing XML comment warnings only for test projects where IsTestProject=true,
+    preserving strict documentation requirements for all production workloads and shared libraries.
+  -->
+  <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+</Project>

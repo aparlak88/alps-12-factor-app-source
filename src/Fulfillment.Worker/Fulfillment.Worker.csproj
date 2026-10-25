@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bookstore.Contracts\Bookstore.Contracts.csproj" />
+    <ProjectReference Include="..\Bookstore.ServiceDefaults\Bookstore.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>
