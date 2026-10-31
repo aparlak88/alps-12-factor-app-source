@@ -1,0 +1,46 @@
+<Project>
+  <!--
+    12-Factor Principle: Factor II — Dependencies
+    Explicitly declare and isolate dependencies.
+
+    A twelve-factor app never relies on the implicit existence of system-wide packages or unpinned,
+    floating library versions. It declares all dependencies completely and exactly via a dependency
+    declaration manifest, and uses a dependency isolation tool during execution to ensure no implicit
+    dependencies "leak in" from the surrounding system.
+
+    Why Central Package Management (Directory.Packages.props) is essential for Factor II in .NET:
+    1. Single Source of Truth for Dependency Declarations:
+       With ManagePackageVersionsCentrally=true, individual .csproj files declare *which* dependencies
+       they require (<PackageReference Include="..." />), while this root manifest governs the exact
+       version numbers across the entire monorepo. Any attempt to specify an inline Version attribute
+       inside a .csproj fails compilation with NuGet error NU1008.
+    2. Transitive Dependency Pinning:
+       With CentralPackageTransitivePinningEnabled=true, if any project or third-party library pulls in
+       a transitive dependency listed here, NuGet pins it to the centrally declared version, preventing
+       diamond dependency conflicts or unexpected version upgrades across microservices.
+    3. Anti-Patterns Avoided:
+       - Relying on globally installed GAC assemblies or machine-wide SDK caches without explicit declaration.
+       - Allowing Catalog.Api and Ordering.Api to drift onto incompatible versions of shared libraries.
+       - Floating version ranges (e.g., Version="9.*") that produce non-repeatable builds over time.
+  -->
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Backing Service Client Libraries (used in Factor IV & VI) -->
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.4" />
+    <PackageVersion Include="StackExchange.Redis" Version="2.8.24" />
+    <PackageVersion Include="RabbitMQ.Client" Version="7.1.1" />
+
+    <!-- Testing & Architectural Verification Dependencies -->
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
+  </ItemGroup>
+</Project>
