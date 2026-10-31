@@ -11,6 +11,14 @@
     By enforcing TargetFramework=net10.0, TreatWarningsAsErrors=true, and GenerateDocumentationFile=true
     at the root level, we prevent configuration drift across microservices and ensure that domain contracts
     and APIs maintain comprehensive documentation.
+
+    12-Factor Principle: Factor II — Dependencies
+    Explicitly declare and isolate dependencies.
+
+    By enabling RestorePackagesWithLockFile=true across the solution, NuGet generates and enforces a
+    deterministic dependency graph (packages.lock.json) for every project. Combined with Central Package
+    Management (Directory.Packages.props) and isolated NuGet feeds (nuget.config), this prevents silent
+    transitive version drift or "works on my machine" resolution discrepancies across environments.
   -->
 
   <PropertyGroup>
@@ -20,6 +28,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <IncludeSourceRevisionInInformationalVersion>true</IncludeSourceRevisionInInformationalVersion>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <!-- Detect test projects by naming convention at props evaluation time if not explicitly defined -->
