@@ -1,0 +1,40 @@
+# ==============================================================================
+# 12-Factor Principle: Factor III — Config
+# Store config in the environment.
+#
+# Why Kubernetes ConfigMap is separated from Secret:
+# Factor III states that configuration is everything likely to vary between
+# deploys (local OrbStack, staging, production) and must be injected via
+# environment variables rather than checked into per-environment source files
+# (such as appsettings.Development.json or appsettings.Production.json).
+#
+# In Kubernetes, environment-injected configuration is split by sensitivity:
+#   1. ConfigMap (bookstore-config): Holds non-sensitive operational tuning
+#      knobs (deployment tier label, database pool sizing, cache key prefix,
+#      and message broker queue name) that can be safely inspected in plain
+#      text and patched via Kustomize overlays per environment.
+#   2. Secret (bookstore-secrets): Holds sensitive backing service credentials
+#      and broker endpoints so they are governed by Kubernetes RBAC, encrypted
+#      at rest in etcd, and rotatable via external secret operators without
+#      rebuilding or mutating the application container image.
+#
+# How .NET binds these keys:
+# When a Pod references this ConfigMap via `envFrom.configMapRef`, Kubernetes
+# exports each key as an OS environment variable. The .NET EnvironmentVariables
+# configuration provider automatically translates double underscores (`__`)
+# into hierarchical colons (`:`), binding `Bookstore__Postgres__MaxPoolSize`
+# directly to `BookstoreConfigOptions.Postgres.MaxPoolSize`.
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bookstore-config
+  namespace: twelve-factor-bookstore
+  labels:
+    app.kubernetes.io/part-of: twelve-factor-bookstore
+    twelve-factor.io/factor: iii-config
+data:
+  Bookstore__EnvironmentTier: "local-orbstack"
+  Bookstore__Postgres__MaxPoolSize: "50"
+  Bookstore__Redis__InstancePrefix: "bookstore:"
+  Bookstore__RabbitMq__OrderQueueName: "bookstore.orders.placed"
