@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http.Json;
 using System.Net.Sockets;
 using Bookstore.Contracts;
 using Bookstore.ServiceDefaults.BackingServices;
@@ -7,11 +9,13 @@ using Catalog.Api.Domain;
 using Catalog.Api.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
+using Ordering.Api.Services;
 using Xunit;
 
 namespace Bookstore.ArchitectureTests;
@@ -217,6 +221,202 @@ public sealed class Factor04_BackingServicesTests
             var repo = scope.ServiceProvider.GetRequiredService<ICatalogRepository>();
             Assert.IsType<PostgresCatalogRepository>(repo);
         }
+    }
+
+    [Fact]
+    public void RedisBasketStore_BuildsPrefixedKeys_AndRoundTripsBasketJsonLosslessly()
+    {
+        Assert.Throws<ArgumentException>(() => Ordering.Api.Services.RedisBasketStore.BuildRedisKey("bookstore:", "  "));
+        var key = Ordering.Api.Services.RedisBasketStore.BuildRedisKey("bookstore:", "cust-42");
+        Assert.Equal("bookstore:basket:cust-42", key);
+
+        var defaultPrefixKey = Ordering.Api.Services.RedisBasketStore.BuildRedisKey("   ", " cust-42 ");
+        Assert.Equal("bookstore:basket:cust-42", defaultPrefixKey);
+
+        var basket = new Bookstore.Contracts.CustomerBasketDto(
+            "cust-42",
+            [new Bookstore.Contracts.BasketItemDto(Guid.NewGuid(), "Domain-Driven Design", 2, 49.95m)]);
+
+        var bytes = Ordering.Api.Services.RedisBasketStore.SerializeBasket(basket);
+        var restored = Ordering.Api.Services.RedisBasketStore.DeserializeBasket(bytes);
+        Assert.NotNull(restored);
+        Assert.Equal("cust-42", restored!.CustomerId);
+        Assert.Equal(99.90m, restored.TotalPrice);
+    }
+
+    [Fact]
+    public void RabbitMqOrderEventPublisher_RoundTripsOrderPlacedEventLosslessly()
+    {
+        var evt = new Bookstore.Contracts.OrderPlacedEvent(
+            Guid.NewGuid(),
+            "cust-42",
+            [new Bookstore.Contracts.BasketItemDto(Guid.NewGuid(), "Building Microservices", 1, 44.00m)],
+            DateTimeOffset.UtcNow);
+
+        var bytes = Ordering.Api.Services.RabbitMqOrderEventPublisher.SerializeEvent(evt);
+        var restored = Ordering.Api.Services.RabbitMqOrderEventPublisher.DeserializeEvent(bytes);
+        Assert.Equal(evt.OrderId, restored.OrderId);
+        Assert.Equal(evt.CustomerId, restored.CustomerId);
+        Assert.Single(restored.Items);
+    }
+
+    [Fact]
+    public async Task RedisBasketStore_AndRabbitMqOrderEventPublisher_ValidateArgumentsBeforeOpeningConnections()
+    {
+        var options = Options.Create(new BookstoreConfigOptions
+        {
+            EnvironmentTier = "dev",
+            Postgres = new PostgresOptions { ConnectionString = "Host=localhost;Database=catalog;Username=u;Password=p" },
+            Redis = new RedisOptions { ConnectionString = "unreachable-redis.invalid:6379", InstancePrefix = "bookstore:" },
+            RabbitMq = new RabbitMqOptions { Uri = "amqp://guest:guest@unreachable-rmq.invalid:5672/", OrderQueueName = "bookstore.orders.placed" }
+        });
+
+        await using var basketStore = new RedisBasketStore(options);
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => basketStore.GetBasketAsync(""));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => basketStore.GetBasketAsync("   "));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => basketStore.DeleteBasketAsync(""));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => basketStore.DeleteBasketAsync("   "));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => basketStore.UpsertBasketAsync(null!));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() =>
+            basketStore.UpsertBasketAsync(new CustomerBasketDto("   ", [new BasketItemDto(Guid.NewGuid(), "Title", 1, 10m)])));
+
+        var publisher = new RabbitMqOrderEventPublisher(options);
+        await Assert.ThrowsAsync<ArgumentNullException>(() => publisher.PublishOrderPlacedAsync(null!));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() =>
+            publisher.PublishOrderPlacedAsync(new OrderPlacedEvent(Guid.NewGuid(), "  ", [], DateTimeOffset.UtcNow)));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() =>
+            publisher.PublishOrderPlacedAsync(new OrderPlacedEvent(Guid.NewGuid(), "cust-1", [], DateTimeOffset.UtcNow)));
+    }
+
+    [Fact]
+    public void RedisBasketStore_AndRabbitMqOrderEventPublisher_AttachViaBookstoreConfigOptions_AllowingZeroCodeSwap()
+    {
+        using var localProvider = BuildOrderingServiceProvider(
+            "localhost:6379",
+            "local:",
+            "amqp://guest:guest@localhost:5672/",
+            "local.orders.placed");
+
+        var localBasketStore = Assert.IsType<RedisBasketStore>(localProvider.GetRequiredService<IBasketStore>());
+        Assert.Equal("localhost:6379", localBasketStore.ConfiguredConnectionString);
+        Assert.Equal("local:", localBasketStore.ConfiguredInstancePrefix);
+
+        var localPublisher = Assert.IsType<RabbitMqOrderEventPublisher>(localProvider.GetRequiredService<IOrderEventPublisher>());
+        Assert.Equal("amqp://guest:guest@localhost:5672/", localPublisher.ConfiguredBrokerUri);
+        Assert.Equal("local.orders.placed", localPublisher.ConfiguredQueueName);
+
+        using var cloudProvider = BuildOrderingServiceProvider(
+            "elasticache.us-east-1.amazonaws.com:6379,password=secret",
+            "prod:",
+            "amqps://user:secret@puffin.rmq2.cloudamqp.com:5671/prod-vhost",
+            "prod.orders.placed");
+
+        var cloudBasketStore = Assert.IsType<RedisBasketStore>(cloudProvider.GetRequiredService<IBasketStore>());
+        Assert.Equal("elasticache.us-east-1.amazonaws.com:6379,password=secret", cloudBasketStore.ConfiguredConnectionString);
+        Assert.Equal("prod:", cloudBasketStore.ConfiguredInstancePrefix);
+
+        var cloudPublisher = Assert.IsType<RabbitMqOrderEventPublisher>(cloudProvider.GetRequiredService<IOrderEventPublisher>());
+        Assert.Equal("amqps://user:secret@puffin.rmq2.cloudamqp.com:5671/prod-vhost", cloudPublisher.ConfiguredBrokerUri);
+        Assert.Equal("prod.orders.placed", cloudPublisher.ConfiguredQueueName);
+    }
+
+    [Fact]
+    public async Task CatalogApi_AndOrderingApi_ExposeBackingServicesAndHealthEndpointsViaWebApplicationFactory()
+    {
+        await using var catalogFactory = new WebApplicationFactory<Catalog.Api.Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureAppConfiguration((_, config) =>
+                {
+                    config.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["Bookstore:EnvironmentTier"] = "testing",
+                        ["Bookstore:Postgres:ConnectionString"] = "Host=pg-test.internal;Port=5432;Database=catalog;Username=u;Password=secret-pg",
+                        ["Bookstore:Redis:ConnectionString"] = "redis-test.internal:6379,password=secret-redis",
+                        ["Bookstore:RabbitMq:Uri"] = "amqps://u:secret-rmq@rmq-test.internal:5671/vhost"
+                    });
+                });
+            });
+
+        using var catalogClient = catalogFactory.CreateClient();
+        var catalogResources = await catalogClient.GetFromJsonAsync<List<AttachedResourceDescriptor>>("/api/backing-services");
+        Assert.NotNull(catalogResources);
+        Assert.Equal(3, catalogResources!.Count);
+        Assert.All(catalogResources, r => Assert.DoesNotContain("secret", r.EndpointSummary));
+
+        var catalogLive = await catalogClient.GetAsync("/health/live");
+        Assert.Equal(HttpStatusCode.OK, catalogLive.StatusCode);
+
+        var catalogReady = await catalogClient.GetAsync("/health/ready");
+        Assert.Equal(HttpStatusCode.OK, catalogReady.StatusCode);
+
+        await using var orderingFactory = new WebApplicationFactory<Ordering.Api.Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureAppConfiguration((_, config) =>
+                {
+                    config.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["Bookstore:EnvironmentTier"] = "testing",
+                        ["Bookstore:Postgres:ConnectionString"] = "Host=pg-test.internal;Port=5432;Database=catalog;Username=u;Password=secret-pg",
+                        ["Bookstore:Redis:ConnectionString"] = "redis-test.internal:6379,password=secret-redis",
+                        ["Bookstore:RabbitMq:Uri"] = "amqps://u:secret-rmq@rmq-test.internal:5671/vhost"
+                    });
+                });
+            });
+
+        using var orderingClient = orderingFactory.CreateClient();
+        var orderingResources = await orderingClient.GetFromJsonAsync<List<AttachedResourceDescriptor>>("/api/backing-services");
+        Assert.NotNull(orderingResources);
+        Assert.Equal(3, orderingResources!.Count);
+        Assert.All(orderingResources, r => Assert.DoesNotContain("secret", r.EndpointSummary));
+
+        var orderingLive = await orderingClient.GetAsync("/health/live");
+        Assert.Equal(HttpStatusCode.OK, orderingLive.StatusCode);
+
+        var orderingReady = await orderingClient.GetAsync("/health/ready");
+        Assert.Equal(HttpStatusCode.OK, orderingReady.StatusCode);
+
+        Assert.IsType<RedisBasketStore>(orderingFactory.Services.GetRequiredService<IBasketStore>());
+        Assert.IsType<RabbitMqOrderEventPublisher>(orderingFactory.Services.GetRequiredService<IOrderEventPublisher>());
+    }
+
+    [Theory]
+    [InlineData("Bookstore.ServiceDefaults.xml")]
+    [InlineData("Catalog.Api.xml")]
+    [InlineData("Ordering.Api.xml")]
+    [InlineData("Fulfillment.Worker.xml")]
+    public void ServiceDefaults_AndWorkloads_GenerateXmlDocumentationWithFactor04Remarks(string xmlFileName)
+    {
+        var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFileName);
+        Assert.True(File.Exists(xmlPath), $"XML documentation file '{xmlFileName}' must be emitted on build.");
+        var xmlContent = File.ReadAllText(xmlPath);
+        Assert.Contains("12-Factor Principle: Factor IV — Backing Services", xmlContent);
+    }
+
+    private static ServiceProvider BuildOrderingServiceProvider(
+        string redisConnectionString,
+        string redisInstancePrefix,
+        string rabbitMqUri,
+        string orderQueueName)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Bookstore:EnvironmentTier"] = "production",
+                ["Bookstore:Postgres:ConnectionString"] = "Host=localhost;Port=5432;Database=catalog;Username=u;Password=p",
+                ["Bookstore:Redis:ConnectionString"] = redisConnectionString,
+                ["Bookstore:Redis:InstancePrefix"] = redisInstancePrefix,
+                ["Bookstore:RabbitMq:Uri"] = rabbitMqUri,
+                ["Bookstore:RabbitMq:OrderQueueName"] = orderQueueName
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddBookstoreEnvironmentConfig(configuration);
+        services.AddSingleton<IBasketStore, RedisBasketStore>();
+        services.AddSingleton<IOrderEventPublisher, RabbitMqOrderEventPublisher>();
+        return services.BuildServiceProvider();
     }
 
     private static ServiceProvider BuildCatalogServiceProvider(string postgresConnectionString)

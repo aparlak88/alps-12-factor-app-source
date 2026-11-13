@@ -1,9 +1,11 @@
 using Bookstore.ServiceDefaults;
+using Bookstore.ServiceDefaults.BackingServices;
 using Bookstore.ServiceDefaults.Configuration;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddCodebaseMetadata("Fulfillment.Worker", typeof(Fulfillment.Worker.Program).Assembly);
 builder.Services.AddBookstoreEnvironmentConfig(builder.Configuration);
+builder.Services.AddAttachedResourceProbes();
 
 var host = builder.Build();
 host.Run();
@@ -30,11 +32,19 @@ namespace Fulfillment.Worker
     /// strictly from environment variables via <see cref="ConfigServiceCollectionExtensions.AddBookstoreEnvironmentConfig"/>
     /// with fail-fast startup validation (<c>ValidateOnStart()</c>).
     ///
+    /// 12-Factor Principle: Factor IV — Backing Services
+    /// Treat backing services as attached resources.
+    ///
+    /// Registers <see cref="BackingServiceHealthChecksExtensions.AddAttachedResourceProbes"/> so the worker's
+    /// attached message broker and backing resource handles are monitored via <see cref="BookstoreConfigOptions"/>
+    /// without coupling the worker binary to a specific RabbitMQ host or environment topology.
+    ///
     /// Anti-patterns prevented:
     /// - Maintaining separate repository branches or repositories per deployment tier.
     /// - Hardcoding environment identities or building distinct binaries for staging versus production.
     /// - Deploying untracked binaries whose provenance cannot be mapped back to a specific commit.
     /// - Scattering environment-specific <c>appsettings.{Environment}.json</c> files or credentials in source control.
+    /// - Coupling worker consumers to a fixed local or cloud message broker address in source code.
     /// </remarks>
     public partial class Program
     {
