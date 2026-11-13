@@ -1,8 +1,13 @@
 using System.Net.Sockets;
+using Bookstore.Contracts;
 using Bookstore.ServiceDefaults.BackingServices;
 using Bookstore.ServiceDefaults.Configuration;
+using Catalog.Api.Data;
+using Catalog.Api.Domain;
+using Catalog.Api.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -136,6 +141,105 @@ public sealed class Factor04_BackingServicesTests
         Assert.Contains("redis-cli", yamlContent);
         Assert.Contains("rabbitmq-diagnostics", yamlContent);
         Assert.Contains("Factor IV", yamlContent);
+    }
+
+    [Fact]
+    public void CatalogDbContext_ConfiguresBookEntityWithUniqueIsbnIndex()
+    {
+        var options = new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<Catalog.Api.Data.CatalogDbContext>()
+            .UseNpgsql("Host=localhost;Database=catalog_test;Username=postgres;Password=postgres")
+            .Options;
+
+        using var db = new Catalog.Api.Data.CatalogDbContext(options);
+        var entityType = db.Model.FindEntityType(typeof(Catalog.Api.Domain.Book));
+        Assert.NotNull(entityType);
+
+        var isbnProperty = entityType!.FindProperty(nameof(Catalog.Api.Domain.Book.Isbn));
+        Assert.NotNull(isbnProperty);
+        var isbnIndex = entityType.GetIndexes().SingleOrDefault(i => i.Properties.Contains(isbnProperty!));
+        Assert.NotNull(isbnIndex);
+        Assert.True(isbnIndex!.IsUnique);
+    }
+
+    [Fact]
+    public async Task Book_ToDto_MapsDomainEntityToContractRecord_AndPostgresCatalogRepository_ValidatesInputs()
+    {
+        var bookId = Guid.NewGuid();
+        var book = new Book
+        {
+            Id = bookId,
+            Isbn = "978-0321125217",
+            Title = "Domain-Driven Design",
+            Author = "Eric Evans",
+            Price = 54.99m,
+            StockQuantity = 12
+        };
+
+        var dto = book.ToDto();
+        Assert.Equal(bookId, dto.Id);
+        Assert.Equal("978-0321125217", dto.Isbn);
+        Assert.Equal("Domain-Driven Design", dto.Title);
+        Assert.Equal("Eric Evans", dto.Author);
+        Assert.Equal(54.99m, dto.Price);
+        Assert.Equal(12, dto.StockQuantity);
+
+        var options = new DbContextOptionsBuilder<CatalogDbContext>()
+            .UseNpgsql("Host=localhost;Database=catalog_test;Username=postgres;Password=postgres")
+            .Options;
+        using var dbContext = new CatalogDbContext(options);
+        var repository = new PostgresCatalogRepository(dbContext);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => repository.UpsertAsync(null!));
+        var invalidDto = dto with { Price = -5.00m };
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => repository.UpsertAsync(invalidDto));
+    }
+
+    [Fact]
+    public void CatalogDbContext_AndPostgresCatalogRepository_AttachViaBookstoreConfigOptions_AllowingZeroCodeSwap()
+    {
+        const string localConn = "Host=localhost;Port=5432;Database=bookstore_catalog;Username=postgres;Password=postgres";
+        const string cloudRdsConn = "Host=catalog-db.cluster-xyz.us-east-1.rds.amazonaws.com;Port=5432;Database=bookstore_catalog;Username=catalog_app;Password=rds-secret";
+
+        using var localProvider = BuildCatalogServiceProvider(localConn);
+        using (var scope = localProvider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
+            Assert.Contains("Host=localhost", db.Database.GetConnectionString());
+            var repo = scope.ServiceProvider.GetRequiredService<ICatalogRepository>();
+            Assert.IsType<PostgresCatalogRepository>(repo);
+        }
+
+        using var cloudProvider = BuildCatalogServiceProvider(cloudRdsConn);
+        using (var scope = cloudProvider.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CatalogDbContext>();
+            Assert.Contains("catalog-db.cluster-xyz.us-east-1.rds.amazonaws.com", db.Database.GetConnectionString());
+            var repo = scope.ServiceProvider.GetRequiredService<ICatalogRepository>();
+            Assert.IsType<PostgresCatalogRepository>(repo);
+        }
+    }
+
+    private static ServiceProvider BuildCatalogServiceProvider(string postgresConnectionString)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Bookstore:EnvironmentTier"] = "production",
+                ["Bookstore:Postgres:ConnectionString"] = postgresConnectionString,
+                ["Bookstore:Redis:ConnectionString"] = "localhost:6379",
+                ["Bookstore:RabbitMq:Uri"] = "amqp://guest:guest@localhost:5672/"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddBookstoreEnvironmentConfig(configuration);
+        services.AddDbContext<CatalogDbContext>((sp, options) =>
+        {
+            var config = sp.GetRequiredService<IOptions<BookstoreConfigOptions>>().Value;
+            options.UseNpgsql(config.Postgres.ConnectionString);
+        });
+        services.AddScoped<ICatalogRepository, PostgresCatalogRepository>();
+        return services.BuildServiceProvider();
     }
 
     private static string FindRepoRoot()

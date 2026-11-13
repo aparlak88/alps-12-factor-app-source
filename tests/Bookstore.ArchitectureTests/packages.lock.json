@@ -40,6 +40,33 @@
         "resolved": "17.14.1",
         "contentHash": "pmTrhfFIoplzFVbhVwUquT+77CbGH+h4/3mBpdmIlYtBi9nAB+kKI6dN3A/nV4DFi3wLLx/BlHIPK+MkbQ6Tpg=="
       },
+      "Microsoft.EntityFrameworkCore": {
+        "type": "Transitive",
+        "resolved": "9.0.1",
+        "contentHash": "E25w4XugXNykTr5Y/sLDGaQ4lf67n9aXVPvsdGsIZjtuLmbvb9AoYP8D50CDejY8Ro4D9GK2kNHz5lWHqSK+wg==",
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore.Abstractions": "9.0.1",
+          "Microsoft.EntityFrameworkCore.Analyzers": "9.0.1"
+        }
+      },
+      "Microsoft.EntityFrameworkCore.Abstractions": {
+        "type": "Transitive",
+        "resolved": "9.0.1",
+        "contentHash": "qy+taGVLUs82zeWfc32hgGL8Z02ZqAneYvqZiiXbxF4g4PBUcPRuxHM9K20USmpeJbn4/fz40GkCbyyCy5ojOA=="
+      },
+      "Microsoft.EntityFrameworkCore.Analyzers": {
+        "type": "Transitive",
+        "resolved": "9.0.1",
+        "contentHash": "c6ZZJZhPKrXFkE2z/81PmuT69HBL6Y68Cl0xJ5SRrDjJyq5Aabkq15yCqPg9RQ3R0aFLVaJok2DA8R3TKpejDQ=="
+      },
+      "Microsoft.EntityFrameworkCore.Relational": {
+        "type": "Transitive",
+        "resolved": "9.0.1",
+        "contentHash": "7Iu0h4oevRvH4IwPzmxuIJGYRt55TapoREGlluk75KCO7lenN0+QnzCl6cQDY48uDoxAUpJbpK2xW7o8Ix69dw==",
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore": "9.0.1"
+        }
+      },
       "Microsoft.TestPlatform.ObjectModel": {
         "type": "Transitive",
         "resolved": "17.14.1",
@@ -58,6 +85,11 @@
         "type": "Transitive",
         "resolved": "13.0.3",
         "contentHash": "HrC5BXdl00IP9zeV+0Z848QWPAoCr9P3bDEZguI+gkLcBKAOxix/tLEAAHC+UvDNPv4a2d18lOReHMOagPa+zQ=="
+      },
+      "Npgsql": {
+        "type": "Transitive",
+        "resolved": "9.0.3",
+        "contentHash": "tPvY61CxOAWxNsKLEBg+oR646X4Bc8UmyQ/tJszL/7mEmIXQnnBhVJZrZEEUv0Bstu0mEsHZD5At3EO8zQRAYw=="
       },
       "xunit.abstractions": {
         "type": "Transitive",
@@ -112,7 +144,8 @@
         "type": "Project",
         "dependencies": {
           "Bookstore.Contracts": "[1.0.0, )",
-          "Bookstore.ServiceDefaults": "[1.0.0, )"
+          "Bookstore.ServiceDefaults": "[1.0.0, )",
+          "Npgsql.EntityFrameworkCore.PostgreSQL": "[9.0.4, )"
         }
       },
       "fulfillment.worker": {
@@ -127,6 +160,17 @@
         "dependencies": {
           "Bookstore.Contracts": "[1.0.0, )",
           "Bookstore.ServiceDefaults": "[1.0.0, )"
+        }
+      },
+      "Npgsql.EntityFrameworkCore.PostgreSQL": {
+        "type": "CentralTransitive",
+        "requested": "[9.0.4, )",
+        "resolved": "9.0.4",
+        "contentHash": "mw5vcY2IEc7L+IeGrxpp/J5OSnCcjkjAgJYCm/eD52wpZze8zsSifdqV7zXslSMmfJG2iIUGZyo3KuDtEFKwMQ==",
+        "dependencies": {
+          "Microsoft.EntityFrameworkCore": "[9.0.1, 10.0.0)",
+          "Microsoft.EntityFrameworkCore.Relational": "[9.0.1, 10.0.0)",
+          "Npgsql": "9.0.3"
         }
       }
     }
