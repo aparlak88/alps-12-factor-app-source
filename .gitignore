@@ -3,6 +3,8 @@ bin/
 obj/
 [Dd]ebug/
 [Rr]elease/
+!src/**/Release/
+!src/**/Release/**
 TestResults/
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*

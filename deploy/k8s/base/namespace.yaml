@@ -1,0 +1,17 @@
+# ==============================================================================
+# 12-Factor Principle: Factor V — Build, Release, Run
+# Strictly separate build and run stages.
+#
+# Dedicated Kubernetes namespace isolating all Twelve-Factor Bookstore releases
+# (immutable workload images, content-hashed release ConfigMaps, and backing
+# service attachment Secrets) inside the target cluster (OrbStack locally, or
+# staging/production clusters via Kustomize overlays).
+# ==============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: twelve-factor-bookstore
+  labels:
+    app.kubernetes.io/name: twelve-factor-bookstore
+    app.kubernetes.io/part-of: twelve-factor-bookstore
+    twelve-factor.io/factor: v-build-release-run

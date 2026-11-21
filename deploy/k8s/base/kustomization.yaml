@@ -1,0 +1,45 @@
+# ==============================================================================
+# 12-Factor Principle: Factor V — Build, Release, Run
+# Strictly separate build and run stages.
+#
+# How Kustomize implements the Factor V Release Stage:
+#   Release = Build(Commit SHA) + Config(Environment)
+#
+# 1. Immutable Release Identity (configMapGenerator):
+#    `bookstore-release-metadata` keeps Kustomize's default content-hash suffix
+#    enabled (`bookstore-release-metadata-<10-char-hash>`). Whenever
+#    `scripts/release.sh` stamps a new `BOOKSTORE_RELEASE_ID`, Kustomize emits a
+#    brand-new, content-addressed ConfigMap object rather than mutating an
+#    existing ConfigMap in place. Prior ConfigMaps remain intact in the cluster,
+#    enabling instant, deterministic rollbacks to prior releases.
+#
+# 2. Immutable Image Coordinates (images):
+#    Declares canonical image coordinates (`bookstore/catalog-api`,
+#    `bookstore/ordering-api`, `bookstore/fulfillment-worker`) that
+#    `scripts/release.sh` pins to immutable tags (`<yyyyMMdd.HHmm>-<shortSha>`)
+#    instead of mutable `:latest` tags. Workload Deployment manifests added in
+#    Factor VI automatically inherit both the pinned image tag and hashed
+#    release ConfigMap reference.
+# ==============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: twelve-factor-bookstore
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+
+configMapGenerator:
+  - name: bookstore-release-metadata
+    literals:
+      - BOOKSTORE_RELEASE_ID=20261025.0000-0000000
+
+images:
+  - name: bookstore/catalog-api
+    newTag: "0000000"
+  - name: bookstore/ordering-api
+    newTag: "0000000"
+  - name: bookstore/fulfillment-worker
+    newTag: "0000000"

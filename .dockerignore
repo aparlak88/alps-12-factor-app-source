@@ -1,0 +1,50 @@
+# ==============================================================================
+# 12-Factor Principle: Factor V — Build, Release, Run
+# Strictly separate build and run stages.
+#
+# Why .dockerignore is mandatory for deterministic twelve-factor builds:
+# The Build stage converts a pinned source-control revision into an immutable
+# executable bundle. Without a strict .dockerignore, host-compiled artifacts
+# (bin/, obj/) and developer-local environment files (.env) can leak into the
+# Docker build context, causing two severe Factor V & Factor III violations:
+#   1. Host-Binary Contamination: Pre-compiled host DLLs or NuGet project.assets.json
+#      graphs targeting macOS/Windows paths overwrite or short-circuit clean
+#      Alpine Linux compilation inside the SDK container.
+#   2. Credential & Environment Leakage: Local .env files, IDE user settings, or
+#      git metadata could be baked permanently into immutable container layers.
+# ==============================================================================
+
+# Host compilation outputs and intermediate MSBuild state
+**/bin/
+**/obj/
+TestResults/
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# Local environment secrets and overrides (Factor III & Factor V)
+.env
+.env.*
+*.pfx
+*.key
+
+# Version control, IDE caches, and OS metadata
+.git/
+.gitignore
+.vs/
+.idea/
+*.user
+*.userosscache
+*.suo
+*.userprefs
+*.DotSettings.user
+*.VisualState.xml
+.DS_Store
+Thumbs.db
+
+# Non-workload repository directories not required by container builds
+docs/
+deploy/
+scripts/
+tests/
+docker-compose*.yml
+*.md
